@@ -1,0 +1,642 @@
+#INCLUDE 'PROTHEUS.CH'
+#INCLUDE "FWMVCDEF.CH"
+
+
+/*/{Protheus.doc} CN121GPD
+@description Ponto de entrada MVC da rotina CNTA121
+@type  Function
+@author Jared Ribeiro
+@since 23/08/2022
+@version version
+@obs #GESTAODECONTRATOS #MEDICAO
+/*/   
+User Function CNTA121()
+
+	Local __stt      := u___stt(procname(0),"BFGC05JR")
+
+	Local aParam     := ParamIXB
+	Local xRet       := .t.
+	Local oObj       := Nil
+	Local oMedicao   := Nil
+	Local cIdPonto   := ""
+	Local cIdModel   := ""
+	Local nLiqui     := 0
+	Local lIsGrid    := .f.
+	Local lFixo      := .f.
+
+	If aParam <> Nil
+
+		oObj       := aParam[1]
+		cIdPonto   := aParam[2]
+		cIdModel   := aParam[3]
+		lIsGrid  := ( Len( aParam ) > 3 )
+
+		Do Case
+		Case cIdPonto == "MODELVLDACTIVE"
+
+			If FwIsInCallStack("CN121MedEnc")
+				xRet := U_BFGC09JR()
+			Endif
+
+		Case cIdPonto == "MODELPRE"
+		Case cIdPonto == "MODELPOS"
+
+			xRet := U_BFGC17JR()
+
+		Case cIdPonto == "FORMPRE"
+
+			If Len(aParam) >= 6 .And. aParam[3] == 'CXNDETAIL' .And. aParam[5] == 'SETVALUE'
+				//Se chegou neste ponto e o check esta como .T., então ele esta sendo desmarcado
+				If  ValType(aParam[6]) == 'C' .And. aParam[6] == 'CXN_CHECK' .And. oObj:GetValue('CXN_CHECK')
+					oMedicao := MedicaoBF():New()
+					oMedicao:GetValues(oObj:GetModel(),oObj:GetLine())
+					oModelCND := oObj:GetModel():GetModel('CNDMASTER')
+
+					oModelCND:LoadValue('CND_YSALME', oModelCND:GetValue('CND_YSALME') + oMedicao:nTotLiq)
+					oModelCND:SetValue('CND_YVLIPI', oModelCND:GetValue('CND_YVLIPI') - oMedicao:nTotIpi)
+					oModelCND:SetValue('CND_YICMST', oModelCND:GetValue('CND_YICMST') - oMedicao:nTotICMST)
+					oModelCND:LoadValue('CND_VLLIQD', oModelCND:GetValue('CND_VLLIQD') - oMedicao:nTotLiq) //Paliativo - retirar após resolver ticket
+					oModelCND:LoadValue('CND_VLTOT' , oModelCND:GetValue('CND_VLTOT')  - oMedicao:nTotLiq) //Paliativo - retirar após resolver ticket
+
+				Endif
+			Endif
+
+			If Len(aParam) >= 6 .And. aParam[3] == 'CNEDETAIL' .And. aParam[5] == 'DELETE' .And. !FwIsInCallStack('CNTA300DlMd')
+				oModelCND := oObj:GetModel():GetModel('CNDMASTER')
+
+				oMedicao := MedicaoBF():New()
+				oMedicao:CtrFixo(oModelCND:GetValue('CND_FILCTR'), oModelCND:GetValue('CND_CONTRA'))
+
+				oModelCND:SetValue('CND_YVLIPI', oModelCND:GetValue('CND_YVLIPI') - oObj:GetValue('CNE_YVLIPI'))
+				oModelCND:SetValue('CND_YICMST', oModelCND:GetValue('CND_YICMST') - oObj:GetValue('CNE_YICMST'))
+
+				nLiqui := oObj:GetValue('CNE_VLTOT') - oObj:GetValue('CNE_VLDESC') + oObj:GetValue('CNE_YVLIPI') + If(!oMedicao:lFixoBF, oObj:GetValue('CNE_YICMST'), 0)
+
+				oModelCND:LoadValue('CND_YSALME', oModelCND:GetValue('CND_YSALME') + nLiqui)
+				oModelCND:LoadValue('CND_VLLIQD', oModelCND:GetValue('CND_VLLIQD') - nLiqui) //Paliativo - retirar após resolver ticket
+				oModelCND:LoadValue('CND_VLTOT' , oModelCND:GetValue('CND_VLTOT')  - nLiqui) //Paliativo - retirar após resolver ticket
+			Endif
+
+			If Len(aParam) >= 6 .And. aParam[3] == 'CNEDETAIL' .And. aParam[5] == 'UNDELETE' .And. !FwIsInCallStack('CNTA300DlMd')
+				oModelCND := oObj:GetModel():GetModel('CNDMASTER')
+
+				oMedicao := MedicaoBF():New()
+				oMedicao:CtrFixo(oModelCND:GetValue('CND_FILCTR'), oModelCND:GetValue('CND_CONTRA'))
+
+				oModelCND:SetValue('CND_YVLIPI', oModelCND:GetValue('CND_YVLIPI') + oObj:GetValue('CNE_YVLIPI'))
+				oModelCND:SetValue('CND_YICMST', oModelCND:GetValue('CND_YICMST') + oObj:GetValue('CNE_YICMST'))
+
+				nLiqui := oObj:GetValue('CNE_VLTOT') - oObj:GetValue('CNE_VLDESC') + oObj:GetValue('CNE_YVLIPI') + If(!oMedicao:lFixoBF, oObj:GetValue('CNE_YICMST'), 0)
+
+				oModelCND:LoadValue('CND_YSALME', oModelCND:GetValue('CND_YSALME') - nLiqui)
+				oModelCND:LoadValue('CND_VLLIQD', oModelCND:GetValue('CND_VLLIQD') + nLiqui) //Paliativo - retirar após resolver ticket
+				oModelCND:LoadValue('CND_VLTOT' , oModelCND:GetValue('CND_VLTOT')  + nLiqui) //Paliativo - retirar após resolver ticket
+			Endif
+
+		Case cIdPonto == "FORMPOS"
+		Case cIdPonto == "FORMLINEPRE"
+		Case cIdPonto == "FORMLINEPOS"
+
+			If aParam[3] == 'CNEDETAIL' .And. FwIsInCallStack('CN121ITEM') .And. FwIsInCallStack('VldLineData')
+				U_BFGC13JR(.t.)
+			Endif
+
+			If aParam[3] == 'CNEDETAIL' .And. FwIsInCallStack('CNTA300DlMd') .And. FwIsInCallStack('VldLineData')
+				U_BFGC13JR(.f.)
+			Endif
+
+			If aParam[3] == 'CNEDETAIL' .And. !FwIsInCallStack('CN121ITEM') .And. !FwIsInCallStack('CNTA300DlMd')
+				xRet := U_BFGC16JR()
+			Endif
+
+		Case cIdPonto == "MODELCOMMITTTS"
+		Case cIdPonto == "MODELCOMMITNTTS"
+
+			If FWIsInCallStack('CN121Encerr')
+				U_BFGC10JR()
+			Endif
+
+		Case cIdPonto == "FORMCOMMITTTSPRE"
+		Case cIdPonto == "FORMCOMMITTTSPOS"
+
+			U_BFGC15JR()
+
+		Case cIdPonto == "FORMCANCEL"
+		Case cIdPonto == "BUTTONBAR"
+		EndCase
+
+	EndIf
+
+Return( xRet )
+
+
+/*/{Protheus.doc} BFGC09JR
+@description Função que substitui o antigo P.E CN120ENVL
+@type  Function
+@author Jared Ribeiro
+@since 23/08/2022
+@version version
+@obs #GESTAODECONTRATOS #MEDICAO
+/*/ 
+User Function BFGC09JR()
+
+	Local __stt    := u___stt(procname(0),"BFGC05JR")
+
+	Local lRet     := .T.
+	Local aArea    := CNE->(GetArea())
+
+	DbSelectArea("CNE")
+	CNE->(DbSetOrder(4))
+	CNE->(DbGoTop())
+	CNE->(DbSeek(xFilial("CND")+CND->CND_NUMMED))
+	While !Eof() .And. CNE->CNE_FILIAL == xFilial("CND") .And. CNE->CNE_NUMMED == CND->CND_NUMMED
+
+		If !Empty(CNE->CNE_CODPRO)
+			DbSelectArea("AF8")
+			AF8->(DbSetOrder(1))
+			If !AF8->(DbSeek(xFilial('AF8')+CNE->CNE_CODPRO))
+				MSGALERT("Codigo do Projeto ("+CNE->CNE_CODPRO+") não existe !","Aviso")
+				lRet := .F.
+			EndIf
+		EndIf
+
+		If CNE->CNE_CODPRO <> CND->CND_YPI
+			MSGALERT("Codigo do Projeto diferente do que esta no contrato, verifique !","Aviso")
+			lRet := .F.
+		EndIf
+
+		//448142 - Adiantamento de Contratos e geração de títulos por medição
+		If CNE->CNE_PEDTIT == "2" .And. Empty(CNE->CNE_YNATME)
+			MsgAlert("Para CTR que geram titulos é necessario informar a natureza (CNE_YNATME), verifique !","Aviso")
+			lRet := .F.
+		EndIf
+
+		If !lRet
+			Exit
+		EndIf
+
+		CNE->(DbSkip())
+	EndDo
+
+	RestArea(aArea)
+
+Return(lRet)
+
+
+/*/{Protheus.doc} BFGC10JR
+@description Função que substitui o antigo P.E CN120PDM
+@type  Function
+@author Jared Ribeiro
+@since 24/08/2022
+@version version
+@obs #GESTAODECONTRATOS #MEDICAO
+/*/ 
+User Function BFGC10JR()
+
+	Local __stt      := u___stt(procname(0),"BFGC05JR")
+
+	Local oModel     := FwModelActive()
+	Local aAreaSC7   := SC7->(GetArea())
+	Local cQuery     := ""
+	Local nValFre    := 0
+	Local nQtdIt     := 0
+	Local nVlrDif    := 0
+	Local nContItem  := 1
+	Local lCompra    := Cn121RetSt( "COMPRA" , 0, /*cPlan*/, /*cContra*/, .T., oModel )
+
+    //Alterado por Andre Vicente 10/02/2017
+    //Levar campos seguro e despesa para o pedido
+	If lCompra
+
+		// Alexandre Bastos - 29/09/2020 - #267331 - adicionado query caso houver mais de um item e altera todos os itens do pedido, pois alterava somente o ultimo item do pedido
+		If Val(SC7->C7_ITEM) > 1
+
+			cQuery := " SELECT R_E_C_N_O_ AS RECNO FROM " + RetSqlName("SC7")
+			cQuery += " WHERE D_E_L_E_T_ = ' ' "
+			cQuery += " AND C7_FORNECE = '" + SC7->C7_FORNECE + "' "
+			cQuery += " AND C7_LOJA = '" + SC7->C7_LOJA + "' "
+			cQuery += " AND C7_NUM = '" + SC7->C7_NUM + "' "
+			cQuery := ChangeQuery(cQuery)
+
+			MPSysOpenQuery(cQuery, "TMP")
+
+			DbSelectArea("TMP")
+			Count to nQtdIt
+
+			nValFre  := Round( oModel:GetValue("CNDMASTER", "CND_YVLFRT") / nQtdIt, 2 )
+			nVlrDif  := oModel:GetValue("CNDMASTER", "CND_YVLFRT") - (nValFre * nQtdIt)
+
+			TMP->(DbGoTop())
+			DbSelectArea("SC7")
+			While TMP->(!Eof())
+
+				If nContItem == nQtdIt
+					nValFre+=nVlrDif
+				EndIf
+
+				DbGoTo(TMP->RECNO)
+				If RecLock("SC7",.F.)
+					SC7->C7_TPFRETE := oModel:GetValue("CNDMASTER", "CND_YTPFRT")
+					SC7->C7_VALFRE  := nValFre
+					SC7->C7_YTPGER  := oModel:GetValue("CNDMASTER", "CND_YTPGER")
+					SC7->C7_SEGURO  := oModel:GetValue("CNDMASTER", "CND_YSEGUR")
+					SC7->C7_DESPESA := oModel:GetValue("CNDMASTER", "CND_YDESPE")
+					SC7->(MsUnlock())
+				EndIf
+
+				nContItem++
+
+				TMP->(DbSkip())
+			EndDo
+
+			TMP->(DbCloseArea())
+		Else
+			If RecLock("SC7",.F.)
+				SC7->C7_TPFRETE := oModel:GetValue("CNDMASTER", "CND_YTPFRT")
+				SC7->C7_VALFRE  := oModel:GetValue("CNDMASTER", "CND_YVLFRT")
+				SC7->C7_YTPGER  := oModel:GetValue("CNDMASTER", "CND_YTPGER")
+				SC7->C7_SEGURO  := oModel:GetValue("CNDMASTER", "CND_YSEGUR")
+				SC7->C7_DESPESA := oModel:GetValue("CNDMASTER", "CND_YDESPE")
+				SC7->(MsUnlock())
+			EndIf
+		EndIf
+	EndIf
+
+	RestArea(aAreaSC7)
+
+Return
+
+
+/*/{Protheus.doc} BFGC13JR
+@description Função que substitui o antigo P.E CN130INC
+@type  Function
+@author Jared Ribeiro
+@since 14/09/2022
+@version version
+@obs #GESTAODECONTRATOS #MEDICAO
+/*/ 
+User Function BFGC13JR(lMarca)
+
+	Local __stt      := u___stt(procname(0),"BFGC05JR")
+
+	Local oModel     := FwModelActive()
+	Local oCND       := oModel:GetModel('CNDMASTER')
+	Local oCNE       := oModel:GetModel('CNEDETAIL')
+	Local cTipCtr    := Posicione('CN9',1, xFilial('CN9',oCND:GetValue('CND_FILCTR'))+oCND:GetValue('CND_CONTRA')+oCND:GetValue('CND_REVISA'),'CN9_TPCTO')
+	Local nOper      := oModel:GetOperation()
+
+	If nOper == 3 .Or. nOper == 4
+
+		If lMarca
+
+			dbSelectArea("CN1")
+			CN1->(dbSetOrder(1))
+			If dbSeek(xFilial("CN1")+cTipCtr)
+
+				If AllTrim(CN1->CN1_CTRFIX) != "2"
+
+					//Se Item contabil vazio, Atualiza com o valor da CNE
+					If Empty(oCNE:GetValue('CNE_YITEM'))
+						oCNE:LoadValue('CNE_YITEM',CNB->CNB_YITEM)
+					EndIf
+
+					//Se Cod do Projeto vazio, Atualiza com o valor da CNE
+					If Empty(oCNE:GetValue('CNE_CODPRO'))
+						oCNE:LoadValue('CNE_CODPRO',CNB->CNB_CODPRO)
+					EndIf
+
+					//Se Armazem Vazio, Atualiza com Valor da CNE
+					If Empty(oCNE:GetValue('CNE_LOCAL'))
+						oCNE:LoadValue('CNE_LOCAL',CNB->CNB_LOCAL)
+					EndIf
+
+					//Se Tipo de Operacao vazio, Atualiza com o valor da CNE.
+					If Empty(oCNE:GetValue('CNE_OPER'))
+						oCNE:LoadValue('CNE_OPER',CNB->CNB_OPER)
+					EndIf
+
+					//Se Centro de Custo Vazio, atualiza com o valor da CNE.
+					If Empty(oCNE:GetValue('CNE_CC'))
+						oCNE:LoadValue('CNE_CC',CNB->CNB_CC)
+					EndIf
+
+					//Se a Classe valor vazia, Atualiza com valor da CNE
+					If Empty(oCNE:GetValue('CNE_CLVL'))
+						oCNE:LoadValue('CNE_CLVL',CNB->CNB_CLVL)
+					EndIf
+
+					//Se o Ano Safra vazia, Atualiza com valor da CNE
+					If Empty(oCNE:GetValue('CNE_YPLPCO'))
+						oCNE:LoadValue('CNE_YPLPCO',CNB->CNB_YPLPCO)
+					EndIf
+
+					//Se Versao Safra vazia, Atualiza com valor da CNE
+					If Empty(oCNE:GetValue('CNE_YPLVER'))
+						oCNE:LoadValue('CNE_YPLVER',CNB->CNB_YPLVER)
+					EndIf
+
+					//Se o Cod. de Produto Equivalente tiver vazio.
+					If Empty(oCNE:GetValue('CNE_YCODFA'))
+						oCNE:LoadValue('CNE_YCODFA',CNB->CNB_YCODFA)
+					EndIf
+
+				Endif
+
+			Endif
+
+		Else
+
+			If !Empty(oCNE:GetValue('CNE_YITEM'))
+				oCNE:LoadValue('CNE_YITEM',Space(TamSx3('CNE_YITEM')[1]))
+			EndIf
+
+			If !Empty(oCNE:GetValue('CNE_CODPRO'))
+				oCNE:LoadValue('CNE_CODPRO',Space(TamSx3('CNE_CODPRO')[1]))
+			EndIf
+
+			If !Empty(oCNE:GetValue('CNE_LOCAL'))
+				oCNE:LoadValue('CNE_LOCAL',Space(TamSx3('CNE_LOCAL')[1]))
+			EndIf
+
+			If !Empty(oCNE:GetValue('CNE_OPER'))
+				oCNE:LoadValue('CNE_OPER',Space(TamSx3('CNE_OPER')[1]))
+			EndIf
+
+			If !Empty(oCNE:GetValue('CNE_CC'))
+				oCNE:LoadValue('CNE_CC',Space(TamSx3('CNE_CC')[1]))
+			EndIf
+
+			If !Empty(oCNE:GetValue('CNE_CLVL'))
+				oCNE:LoadValue('CNE_CLVL',Space(TamSx3('CNE_CLVL')[1]))
+			EndIf
+
+			If !Empty(oCNE:GetValue('CNE_YPLPCO'))
+				oCNE:LoadValue('CNE_YPLPCO',Space(TamSx3('CNE_YPLPCO')[1]))
+			EndIf
+
+			If !Empty(oCNE:GetValue('CNE_YPLVER'))
+				oCNE:LoadValue('CNE_YPLVER',Space(TamSx3('CNE_YPLVER')[1]))
+			EndIf
+
+			If !Empty(oCNE:GetValue('CNE_YVLIPI'))
+				oCNE:LoadValue('CNE_YVLIPI',0)
+			EndIf
+
+			If !Empty(oCNE:GetValue('CNE_YCODFA'))
+				oCNE:LoadValue('CNE_YCODFA',Space(TamSx3('CNE_YCODFA')[1]))
+			EndIf
+
+			If !Empty(oCNE:GetValue('CNE_YICMST'))
+				oCNE:LoadValue('CNE_YICMST',0)
+			EndIf
+
+		Endif
+
+	Endif
+
+Return
+
+
+/*/{Protheus.doc} BFGC15JR
+@description Função que substitui o antigo P.E CN130PGRV
+@type  Function
+@author Jared Ribeiro
+@since 05/03/2022
+@version version
+@obs #GESTAODECONTRATOS #MEDICAO
+/*/ 
+User Function BFGC15JR()
+
+	Local __stt      := u___stt(procname(0),"BFGC05JR")
+
+	Local oModel     := FwModelActive()
+	Local oCND       := oModel:GetModel('CNDMASTER')
+	Local nQtdKG     := 0 //quantidade de kg por saca
+	Local nTotKG     := 0 //total de kg do contrato
+	Local nQtdMed    := 0 //total de kg a medir
+	Local nQtdAtu    := 0
+	Local nQtdM      := 0 //valor de KG a medir
+
+	If FieldPos("CNB_YQUANT") > 0
+		nQtdKG  := Posicione("CNB",1,xFilial("CNB")+oCND:GetValue("CND_CONTRA")+oCND:GetValue("CND_REVISA"),"CNB_YQUANT") //quantidade de kg por saca
+	EndIf
+
+	If FieldPos("CND_YTOTPR") > 0
+		nTotKG  := oCND:GetValue("CND_YTOTPR")
+	EndIf
+
+	If FieldPos("CND_YKMED") > 0 .And. FieldPos("CND_YKGMED") > 0
+
+		nQtdAtu := nQtdKG * nQtdMed
+		nQtdM   := nTotKG - nQtdAtu
+
+		If RecLock("CND",.F.)
+			CND->CND_YKMED    := nQtdAtu
+			CND->CND_YKGMED   := nQtdM
+			CND->(MsUnlock())
+		EndIf
+
+	EndIf
+
+Return
+
+
+/*/{Protheus.doc} BFGC16JR
+@description Função que substitui o antigo P.E CN130VLIN
+@type  Function
+@author Jared Ribeiro
+@since 05/03/2022
+@version version
+@obs #GESTAODECONTRATOS #MEDICAO
+/*/ 
+User Function BFGC16JR()
+
+	Local __stt      := u___stt(procname(0),"BFGC05JR")
+
+	Local oModel     := FwModelActive()
+	Local oCNE       := oModel:GetModel('CNEDETAIL')
+	Local lRet       := .T.
+	Local _cOpers    := U_YGETNPAR("MV_YPCPOBR","11#12#23#")
+	Local aYOperat   := StrTokArr(U_YGETNPAR("MV_YOPERAT",""),";") //Operacoes que obriga o bem no pedido de Compra Direta
+	Local aYCProdabs := StrTokArr(U_YGETNPAR("MV_YPROABS",""),";") //Produtos usados para abastecimento e não precisa de Bem na medição
+
+//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+//³Jared Ribeiro 03/05/2016                       ³
+//³Solicitado por Lamice Rodrigues                ³
+//³Chamado 073378                                 ³
+//³MIT044 Validações na medição de CTR            ³
+//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+	If (oCNE:GetValue('CNE_OPER') $ _cOpers) .And. !IsBlind()
+
+		//Valida o Centro de Custo
+		If Empty(oCNE:GetValue('CNE_CC'))
+			u_MsgBF(OemToAnsi(If((_nPos := At(".",cUserName))>0,Upper(SubStr(Alltrim(SubStr(cUserName,1,(_nPos-1))),1,1))+Lower(SubStr(Alltrim(SubStr(cUserName,1,(_nPos-1))),2,(Len(Alltrim(SubStr(cUserName,1,(_nPos-1))))-1))),Upper(SubStr(Alltrim(cUserName),1,1))+Lower(SubStr(Alltrim(cUserName),2,(Len(Alltrim(cUserName))-1))))+Chr(13)+Chr(10)+"Centro de Custo Obrigatorio!"),OemToAnsi("Para os tipos de operacao "+_cOpers+" o centro de custo e obrigatorio!"),.f.,.f.,"0004")
+			Return (lRet := .f.)
+		Endif
+
+		//Valida a Classe de Valor
+		If Empty(oCNE:GetValue('CNE_CLVL'))
+			u_MsgBF(OemToAnsi(If((_nPos := At(".",cUserName))>0,Upper(SubStr(Alltrim(SubStr(cUserName,1,(_nPos-1))),1,1))+Lower(SubStr(Alltrim(SubStr(cUserName,1,(_nPos-1))),2,(Len(Alltrim(SubStr(cUserName,1,(_nPos-1))))-1))),Upper(SubStr(Alltrim(cUserName),1,1))+Lower(SubStr(Alltrim(cUserName),2,(Len(Alltrim(cUserName))-1))))+Chr(13)+Chr(10)+"Aglomerado Obrigatorio!"),OemToAnsi("Para os tipos de operacao "+_cOpers+" o Aglomerado e obrigatorio!"),.f.,.f.,)
+			Return (lRet := .f.)
+		Endif
+
+		//Valida o Ano Safra
+		If Empty(oCNE:GetValue('CNE_YPLPCO'))
+			u_MsgBF(OemToAnsi(If((_nPos := At(".",cUserName))>0,Upper(SubStr(Alltrim(SubStr(cUserName,1,(_nPos-1))),1,1))+Lower(SubStr(Alltrim(SubStr(cUserName,1,(_nPos-1))),2,(Len(Alltrim(SubStr(cUserName,1,(_nPos-1))))-1))),Upper(SubStr(Alltrim(cUserName),1,1))+Lower(SubStr(Alltrim(cUserName),2,(Len(Alltrim(cUserName))-1))))+Chr(13)+Chr(10)+"Ano Safra Obrigatorio!"),OemToAnsi("Para os tipos de operacao "+_cOpers+" o ano safra e obrigatorio!"),.f.,.f.,)
+			Return (lRet := .f.)
+		Endif
+	Endif
+
+    //Valida campo Bem
+	If !IsBlind()
+		If .Not. Empty(aYCProdabs)
+			If aScan(aYCProdabs,AllTrim(oCNE:GetValue('CNE_PRODUT'))) > 0
+				lRet := .T.
+			else
+				If aScan(aYOperat,oCNE:GetValue('CNE_OPER')) .AND. Empty(oCNE:GetValue('CNE_YCBEM')) .And. Empty(oCNE:GetValue('CNE_CODPRO'))
+					u_MsgBF(OemToAnsi(If((_nPos := At(".",cUserName))>0,Upper(SubStr(Alltrim(SubStr(cUserName,1,(_nPos-1))),1,1))+Lower(SubStr(Alltrim(SubStr(cUserName,1,(_nPos-1))),2,(Len(Alltrim(SubStr(cUserName,1,(_nPos-1))))-1))),Upper(SubStr(Alltrim(cUserName),1,1))+Lower(SubStr(Alltrim(cUserName),2,(Len(Alltrim(cUserName))-1))))+Chr(13)+Chr(10)+"É necessário informar o Bem ou Cod. do Projeto!"),OemToAnsi("Para os tipos de operacao "+U_YGETNPAR("MV_YOPERAT","")+" o Bem ou Cod. do Projeto são obrigatórios!"),.f.,.f.,)
+					Return(lRet := .f.)
+				EndIf
+			EndIf
+		Else
+			If aScan(aYOperat,oCNE:GetValue('CNE_OPER')) .AND. Empty(oCNE:GetValue('CNE_YCBEM')) .And. Empty(oCNE:GetValue('CNE_CODPRO'))
+				u_MsgBF(OemToAnsi(If((_nPos := At(".",cUserName))>0,Upper(SubStr(Alltrim(SubStr(cUserName,1,(_nPos-1))),1,1))+Lower(SubStr(Alltrim(SubStr(cUserName,1,(_nPos-1))),2,(Len(Alltrim(SubStr(cUserName,1,(_nPos-1))))-1))),Upper(SubStr(Alltrim(cUserName),1,1))+Lower(SubStr(Alltrim(cUserName),2,(Len(Alltrim(cUserName))-1))))+Chr(13)+Chr(10)+"É necessário informar o Bem ou Cod. do Projeto!"),OemToAnsi("Para os tipos de operacao "+U_YGETNPAR("MV_YOPERAT","")+" o Bem ou Cod. do Projeto são obrigatórios!"),.f.,.f.,)
+				Return(lRet := .f.)
+			EndIf
+		EndIf
+	EndIf
+
+	lRet := U_BFGC013K()
+
+Return(lRet)
+
+
+/*/{Protheus.doc} BFGC17JR
+@description Função que substitui o antigo P.E CN130TOK e CN130PrG
+@type  Function
+@author Jared Ribeiro
+@since 05/03/2022
+@version version
+@obs #GESTAODECONTRATOS #MEDICAO
+/*/ 
+User Function BFGC17JR()
+
+	Local __stt      := u___stt(procname(0),"BFGC05JR")
+
+	Local aAreaCN1   := {}
+	Local aSaveLines := {}
+	Local cTipCtr    := ""
+	Local oModel     := FwModelActive()
+	Local oCND       := oModel:GetModel('CNDMASTER')
+	Local oCXN       := oModel:GetModel('CXNDETAIL')
+	Local oCNE       := oModel:GetModel('CNEDETAIL')
+	Local lValido    := .t.
+	Local nCxn       := 0
+	Local nCne       := 0
+	Local nOperation := oModel:GetOperation()
+
+	If nOperation == 3 .Or. nOperation == 4
+
+		DbSelectArea("AF8")
+		DbSetOrder(1)
+		if AF8->(MsSeek(xFilial("AF8") + oCND:GetValue('CND_YPI')))
+			if AF8->AF8_ENCPRJ == "1"
+				MsgInfo("Atenção! Não é possível selecionar o projeto " + oCND:GetValue('CND_YPI') + ", pois já se encontra encerrado. Favor, verifique.")
+				lValido := .F.
+			endif
+		endif
+
+		If lValido
+
+			aAreaCN1   := CN1->(GetArea())
+
+			cTipCtr := Posicione('CN9',1, xFilial("CN9", oCND:GetValue('CND_FILCTR'))+oCND:GetValue('CND_CONTRA')+oCND:GetValue('CND_REVISA'),'CN9_TPCTO')
+
+			DbSelectArea("CN1")
+			DbSetOrder(1)
+			If DbSeek(xFilial("CN1")+cTipCtr) .And.  CN1->(CN1_YGERPD) == "2"
+
+				aSaveLines := FwSaveRows()
+
+				For nCxn := 1 to oCXN:Length()
+
+					oCXN:GoLine(nCxn)
+
+					If oCXN:GetValue('CXN_CHECK') .And. !oCXN:IsDeleted() .And. lValido
+
+						For nCne := 1 to oCNE:Length()
+
+							oCNE:GoLine(nCne)
+
+							If !oCNE:IsDeleted() .And. lValido
+
+								If Empty(oCNE:GetValue('CNE_CC'))
+									MsgInfo("Atenção! Esta planilha está vinculada a um contrato que gera diretamente o financeiro, por isso é obrigatório informar o campo : Centro de Custo [CNE_CC], na linha " + Str(nCne,3))
+									lValido := .f.
+									Exit
+								Endif
+
+								If Empty(oCNE:GetValue('CNE_YPLVER'))
+									MsgInfo("Atenção! Esta planilha está vinculada a um contrato que gera diretamente o financeiro, por isso é obrigatório informar o campo : Versão Safra [CNE_YPLVER], na linha " + Str(nCne,3))
+									lValido := .f.
+									Exit
+								Endif
+
+								If Empty(oCNE:GetValue('CNE_CLVL'))
+									MsgInfo("Atenção! Esta planilha está vinculada a um contrato que gera diretamente o financeiro, por isso é obrigatório informar o campo : Aglomerado [CNE_CLVL], na linha " + Str(nCne,3))
+									lValido := .f.
+									Exit
+								Endif
+
+								If Empty(oCNE:GetValue('CNE_YITEM'))
+									MsgInfo("Atenção! Esta planilha está vinculada a um contrato que gera diretamente o financeiro, por isso é obrigatório informar o campo : Item Contábil [CNE_YITEM], na linha " + Str(nCne,3))
+									lValido := .f.
+									Exit
+								Endif
+
+								If Empty(oCNE:GetValue('CNE_YPLPCO'))
+									MsgInfo("Atenção! Esta planilha está vinculada a um contrato que gera diretamente o financeiro, por isso é obrigatório informar o campo : Safra [CNE_YPLPCO], na linha " + Str(nCne,3))
+									lValido := .f.
+									Exit
+								Endif
+
+							Endif
+
+						Next nCne
+
+					Endif
+
+				Next nCxn
+
+				FwRestRows(aSaveLines)
+
+			EndIf
+
+			If lValido .and. .not. U_BFMA50HS('MC')
+				lValido := .F.
+			EndIf
+
+			RestArea(aAreaCN1)
+
+		Endif
+
+		//ÚÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄ¿
+		//³Marcelo Evangelista 22/12/2015            ³
+		//³CAMPO para informar o frete na mediçao    ³
+		//³CHAMADO 064188                            ³
+		//³Valida os dados referente ao frete        ³
+		//³                                          ³
+		//ÀÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÄÙ
+		If lValido
+			If oCND:GetValue('CND_YTPFRT') == "S"
+				oCND:LoadValue('CND_YVLFRT', 0)
+			Else
+				If(oCND:GetValue('CND_YVLFRT') <= 0)
+					MsgAlert("[Valor Frete] é Obrigatório.")
+					lValido := .F.
+				EndIf
+			EndIf
+		EndIf
+	Endif
+
+Return lValido

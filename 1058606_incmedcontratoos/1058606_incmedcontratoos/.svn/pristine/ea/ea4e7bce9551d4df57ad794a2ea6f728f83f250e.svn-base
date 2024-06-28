@@ -1,0 +1,240 @@
+#Include 'Protheus.ch'
+#INCLUDE "FWMVCDEF.CH"
+
+/*/{Protheus.doc} BFGC11JR
+  @description Classe com métodos genéricos para a medição de contratos
+  @type  Function
+  @author Jared Ribeiro
+  @since 30/08/2022
+  @version version
+  @obs #GESTAODECONTRATOS #MEDICAO
+/*/ 
+
+class MedicaoBF
+
+    Data cNovaRegra 
+    Data nTotBruto
+    Data nTotLiq
+    Data nTotDesc
+    Data nTotIpi
+    Data nTotICMST
+    Data lFixoBF
+
+    method new() constructor 
+    
+    method SetStruct(oModel) 
+    method SetRegra(cCampo, cSx3, cRegra)
+    method GetValues(oModel,nLinha,lRefresh)
+    method CtrFixo(xFilCtr, xCtr)
+
+EndClass
+ 
+/*-------------------------------------------------------------------------------------
+Autor: Jared Ribeiro  Data: 30/08/2022  Obs: Construtor
+--------------------------------------------------------------------------------------*/
+method new() class MedicaoBF 
+
+    Self:cNovaRegra := ""
+    Self:nTotBruto  := 0
+    Self:nTotLiq    := 0
+    Self:nTotDesc   := 0
+    Self:nTotIpi    := 0
+    Self:nTotICMST  := 0
+    Self:lFixoBF    := .f.
+    
+return Self
+
+/*-------------------------------------------------------------------------------------
+Autor: Jared Ribeiro  Data: 30/08/2022  Obs: Todas as validações de campos e gatilhos 
+agora são criados neste método, para deixar o dicionário limpo e padrão
+--------------------------------------------------------------------------------------*/
+method SetStruct(oModel) class MedicaoBF 
+
+    Default oModel := FwModelActive()
+
+    //Adiciona as validações de usuário
+    Self:SetRegra('CND_YVLFRT', 'X3_VALID', "U_BFGC01ME()")
+    oModel:GetModel("CNDMASTER"):GetStruct():SetProperty('CND_YVLFRT', MODEL_FIELD_VALID, FwBuildFeature(1, Self:cNovaRegra))
+
+    Self:SetRegra('CNE_PRODUT', 'X3_VALID', "ExecBlock('BFCO021D',.f.,.f.)")
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_PRODUT', MODEL_FIELD_VALID, FwBuildFeature(1, Self:cNovaRegra))
+
+    Self:SetRegra('CNE_OPER', 'X3_VALID', "u_BFFUNFIS('_OPER',{FwFldGet('CNE_PRODUT'),M->CNE_OPER})")
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_OPER'  , MODEL_FIELD_VALID, FwBuildFeature(1, Self:cNovaRegra))
+
+    Self:SetRegra('CNE_CODPRO', 'X3_VALID', 'ExistCpo( "AF8", M->CNE_CODPRO ) .And. ExecBlock("BFAF004W",.F.,.F.,{.F.,.T.}) .And. ExecBlock("BFGC021K",.F.,.F.)')
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_CODPRO', MODEL_FIELD_VALID, FwBuildFeature(1, Self:cNovaRegra))
+
+    Self:SetRegra('CNE_LOCAL', 'X3_VALID', "U_BFCO018D(.T.,,&(ReadVar()),FwFldGet('CNE_PRODUT'))")
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_LOCAL' , MODEL_FIELD_VALID, FwBuildFeature(1, Self:cNovaRegra))
+
+    Self:SetRegra('CNE_YCBEM', 'X3_VALID', "U_BFES07JG()")
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_YCBEM' , MODEL_FIELD_VALID, FwBuildFeature(1, Self:cNovaRegra))
+
+    Self:SetRegra('CNE_CC', 'X3_VALID', "ExecBlock('BFCT03JL',.f.,.f.)")
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_CC'    , MODEL_FIELD_VALID, FwBuildFeature(1, Self:cNovaRegra))
+
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_YVLIPI', MODEL_FIELD_VALID, {|oObj,cCampo,nValAtual,nLinha,nValAnter| U_BFGC14JR(oObj,cCampo,nValAtual,nLinha,nValAnter)})
+
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_YICMST', MODEL_FIELD_VALID, {|oObj,cCampo,nValAtual,nLinha,nValAnter| U_BFGC14JR(oObj,cCampo,nValAtual,nLinha,nValAnter)})
+    //Adiciona a condição para tornar o campo editável
+    Self:SetRegra('CNE_CC', 'X3_WHEN', "U_BFCO002Y()")
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_CC'    ,MODEL_FIELD_WHEN  , FwBuildFeature(2, Self:cNovaRegra))
+
+    Self:SetRegra('CNE_YPLPCO', 'X3_WHEN', "U_BFCO002Y()")
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_YPLPCO',MODEL_FIELD_WHEN  , FwBuildFeature(2, Self:cNovaRegra))
+
+    Self:SetRegra('CNE_YCBEM', 'X3_WHEN', "U_BFES10AL()")
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_YCBEM' ,MODEL_FIELD_WHEN  , FwBuildFeature(2, Self:cNovaRegra))
+
+    oModel:GetModel("CNEDETAIL"):GetStruct():SetProperty('CNE_CODPRO',MODEL_FIELD_INIT  , {|oFields| oFields:oFormModel:GetModel('CNDMASTER'):GetValue('CND_YPI') })
+
+    //Adiciona os gatilhos
+    oModel:GetModel("CNEDETAIL"):GetStruct():AddTrigger("CNE_PDESC" , "CNE_PDESC" ,{||.T.} , {|oGrid,cCampo,xConteudo| U_BFGC12JR(cCampo, xConteudo) })
+    oModel:GetModel("CNEDETAIL"):GetStruct():AddTrigger("CNE_QUANT" , "CNE_QUANT" ,{||.T.} , {|oGrid,cCampo,xConteudo| U_BFGC12JR(cCampo, xConteudo) })
+    oModel:GetModel("CNEDETAIL"):GetStruct():AddTrigger("CNE_VLDESC", "CNE_VLDESC",{||.T.} , {|oGrid,cCampo,xConteudo| U_BFGC12JR(cCampo, xConteudo) })
+    oModel:GetModel("CNEDETAIL"):GetStruct():AddTrigger("CNE_VLTOT" , "CNE_VLTOT" ,{||.T.} , {|oGrid,cCampo,xConteudo| U_BFGC12JR(cCampo, xConteudo) })
+    oModel:GetModel("CNEDETAIL"):GetStruct():AddTrigger("CNE_VLUNIT", "CNE_VLUNIT",{||.T.} , {|oGrid,cCampo,xConteudo| U_BFGC12JR(cCampo, xConteudo) })
+    oModel:GetModel("CNEDETAIL"):GetStruct():AddTrigger("CNE_YBSIPI", "CNE_YBSIPI",{||.T.} , {|oGrid,cCampo,xConteudo| U_BFGC12JR(cCampo, xConteudo) })
+    oModel:GetModel("CNEDETAIL"):GetStruct():AddTrigger("CNE_YCBEM" , "CNE_CC"    ,{||.T.} , {|oGrid,cCampo,xConteudo| U_BFES09AL(xConteudo)         })
+    oModel:GetModel("CNEDETAIL"):GetStruct():AddTrigger("CNE_YIPI"  , "CNE_YIPI"  ,{||.T.} , {|oGrid,cCampo,xConteudo| U_BFGC12JR(cCampo, xConteudo) })
+    oModel:GetModel("CNEDETAIL"):GetStruct():AddTrigger("CNE_YVLIPI", "CNE_YVLIPI",{||.T.} , {|oGrid,cCampo,xConteudo| U_BFGC12JR(cCampo, xConteudo) }) 
+    oModel:GetModel("CNEDETAIL"):GetStruct():AddTrigger("CNE_YICMST", "CNE_YICMST",{||.T.} , {|oGrid,cCampo,xConteudo| U_BFGC12JR(cCampo, xConteudo) }) 
+    oModel:GetModel("CXNDETAIL"):GetStruct():AddTrigger("CXN_CHECK" , "CXN_CHECK" ,{||.T.} , {|oGrid,cCampo,xConteudo| U_BFGC12JR(cCampo, xConteudo) }) 
+
+return oModel
+
+/*-------------------------------------------------------------------------------------
+Autor: Jared Ribeiro  Data: 30/08/2022  Obs: Gera nova regra para a validação do campo 
+--------------------------------------------------------------------------------------*/
+method SetRegra(cCampo, cSx3, cRegra) class MedicaoBF 
+
+    Self:cNovaRegra := GetSx3Cache(cCampo,cSx3)
+    
+    If !Empty(Self:cNovaRegra)
+        Self:cNovaRegra := "(" + Alltrim(Self:cNovaRegra) + ") .And. " + cRegra
+    Else
+        Self:cNovaRegra := cRegra
+    Endif
+
+Return
+
+/*-------------------------------------------------------------------------------------
+Autor: Jared Ribeiro  Data: 30/08/2022  Obs: Busca todos os valores da medição 
+--------------------------------------------------------------------------------------*/
+method GetValues(oModel,nLinha,lRefresh) class MedicaoBF 
+
+    Local aSaveLines := {}
+    Local nCnx       := 0
+    Local nCne       := 0
+    Local nLinIni    := 0
+    Local nLinFim    := 0
+    Local oCabCnd    := Nil
+    Local oGridCnx   := Nil
+    Local oGridCne   := Nil
+    Local nDesconto  := 0
+    Local oView      := FwViewActive()
+
+    Default oModel   := FwModelActive()
+    Default nLinha   := 0
+    Default lRefresh := .t.
+
+    Self:nTotBruto  := 0
+    Self:nTotLiq    := 0
+    Self:nTotDesc   := 0
+    Self:nTotIpi    := 0
+    Self:nTotICMST  := 0
+    
+    oCabCnd    := oModel:GetModel('CNDMASTER')
+    oGridCnx   := oModel:GetModel("CXNDETAIL")	
+    oGridCne   := oModel:GetModel('CNEDETAIL')
+
+    Self:CtrFixo(oCabCnd:GetValue('CND_FILCTR'), oCabCnd:GetValue('CND_CONTRA'))
+
+    aSaveLines := FwSaveRows()
+
+    If nLinha > 0
+        nLinIni := nLinha
+        nLinFim := nLinha
+    Else
+        nLinIni := 1
+        nLinFim := oGridCnx:Length()
+    Endif
+
+    //Busca o valor bruto da medição
+    For nCnx := nLinIni to nLinFim
+
+        oGridCnx:Goline(nCnx)
+
+		If oGridCnx:GetValue("CXN_CHECK") .And. !oGridCnx:IsDeleted() 	
+
+            For nCne := 1 to oGridCne:Length()
+
+                oGridCne:GoLine(nCne)
+                If !oGridCne:IsDeleted()
+                    
+                    //Calcula o valor bruto
+                    Self:nTotBruto += oGridCne:GetValue('CNE_QUANT') * oGridCne:GetValue('CNE_VLUNIT')
+
+                    //Calcula o total de desconto por percentual ou não
+                    If oGridCne:GetValue('CNE_PDESC') == 0
+                        Self:nTotDesc += oGridCne:GetValue('CNE_VLDESC')
+                        nDesconto := oGridCne:GetValue('CNE_VLDESC')
+                    Else
+                        Self:nTotDesc += NoRound((oGridCne:GetValue('CNE_QUANT') * oGridCne:GetValue('CNE_VLUNIT')) * (oGridCne:GetValue('CNE_PDESC')/100), TamSx3("CNE_VLDESC")[2])      
+                        nDesconto := NoRound((oGridCne:GetValue('CNE_QUANT') * oGridCne:GetValue('CNE_VLUNIT')) * (oGridCne:GetValue('CNE_PDESC')/100), TamSx3("CNE_VLDESC")[2])
+                    EndIf
+
+                    //Calcula o total de IPI
+                    Self:nTotIpi += oGridCne:GetValue('CNE_YVLIPI')
+
+                    //Calcula o total de ICMS ST
+                    Self:nTotICMST += oGridCne:GetValue('CNE_YICMST')
+
+                    //Calcula o valor liquido
+                    Self:nTotLiq   += oGridCne:GetValue('CNE_VLTOT') - nDesconto + oGridCne:GetValue('CNE_YVLIPI') + If(!Self:lFixoBF, oGridCne:GetValue('CNE_YICMST'), 0)
+
+                Endif
+
+            Next nCne
+
+        Endif
+
+    Next nCnx
+
+    FwRestRows(aSaveLines)
+    
+    If lRefresh
+        oView:Refresh('VIEW_CNE')
+    Endif
+
+Return
+
+/*-------------------------------------------------------------------------------------
+Autor: Jared Ribeiro  Data: 10/12/20223  Obs: Retorna se o contrato é fixo
+--------------------------------------------------------------------------------------*/
+method CtrFixo(xFilCtr, xCtr) class MedicaoBF 
+    
+    Local aAreaCN9 := CN9->(GetArea()) 
+    Local aAreaCN1 := CN1->(GetArea())
+
+    DbSelectArea("CN9")
+    CN9->(DbSetOrder(1))
+    If CN9->(DbSeek(xFilCtr + xCtr))
+
+        DbSelectArea('CN1')
+        CN1->(DbSetOrder(1))
+        If CN1->(DbSeek(xFilial("CN1",CN9->CN9_FILCTR)+CN9->CN9_TPCTO))
+            Self:lFixoBF := (Empty(CN1->CN1_CTRFIX) .OR. (CN1->CN1_CTRFIX == "1"))
+        Else
+            Self:lFixoBF := .f.
+        Endif
+    
+    Else
+        Self:lFixoBF := .f.
+    Endif
+
+    RestArea(aAreaCN9)
+    RestArea(aAreaCN1)
+
+Return
